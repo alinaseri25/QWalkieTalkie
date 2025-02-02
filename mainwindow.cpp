@@ -57,11 +57,11 @@ MainWindow::~MainWindow()
 
 void MainWindow::onReadInput()
 {
-    qint64 len = m_audioInput->bytesReady();
-    m_buffer.fill(0,len);
-    qint64 l = m_input->read(m_buffer.data(), len);
-    cliSocket->write(m_buffer.data(),m_buffer.count());
-    this->setWindowTitle(QString("len : %1 , l : %2").arg(len).arg(l));
+    if(m_input->bytesAvailable() > BufferSize)
+    {
+        QByteArray Buffer = m_input->read(BufferSize);
+        cliSocket->write(Buffer);
+    }
 }
 
 void MainWindow::onBtnExitClicked(void)
@@ -82,16 +82,16 @@ void MainWindow::onTCPReadyRead()
     for(int count = 0 ; count < sockets.count() ; count++)
     {
         _dataIn = sockets[count]->readAll();
-        if(_dataIn.count() > 0)
+        if(_dataIn.size() > 0)
         {
             if(m_output != NULL)
             {
-                this->setWindowTitle(QString("Data in : %1").arg(_dataIn.count()));
-                m_output->write((char *)_dataIn.data(),_dataIn.count());
+                // qDebug() << QString("Data in : %1").arg(_dataIn.size());
+                m_output->write((char *)_dataIn.data(),_dataIn.size());
             }
             else
             {
-                this->setWindowTitle(QString("Data in : %1 \r\nm_output is null").arg(_dataIn.count()));
+                // qDebug() << QString("Data in : %1 \r\nm_output is null").arg(_dataIn.size());
             }
         }
     }
@@ -165,8 +165,10 @@ void MainWindow::onBtnSendClicked()
     {
         initializeAudio();
         m_input = m_audioInput->start();
+        m_audioInput->setBufferSize(BufferSize);
         connect(m_input,&QIODevice::readyRead,this,&MainWindow::onReadInput);
         ui->BtnSendData->setText(QString("&Stop"));
+        qDebug() << QString("Buffer Size : %1").arg(m_audioInput->bufferSize());
     }
     else
     {
@@ -177,54 +179,49 @@ void MainWindow::onBtnSendClicked()
 
 void MainWindow::initializeAudio(void)
 {
-    m_Inputdevice = QAudioDeviceInfo::availableDevices(QAudio::AudioInput)[ui->CmbAudioInputs->currentIndex()];
-    m_Outputdevice = QAudioDeviceInfo::availableDevices(QAudio::AudioOutput)[ui->CmbAudioOutputs->currentIndex()];
-    //m_format.setFrequency(8000); //set frequency to 8000
     m_format.setSampleRate(16000);
     m_format.setChannelCount(1); //set channels to mono
-    m_format.setSampleSize(16); //set sample sze to 16 bit
-    m_format.setSampleType(QAudioFormat::UnSignedInt ); //Sample type as usigned integer sample
-    m_format.setByteOrder(QAudioFormat::LittleEndian); //Byte order
-    m_format.setCodec("audio/pcm"); //set codec as simple audio/pcm
+    m_format.setSampleFormat(QAudioFormat::UInt8); //set sample size to 16 bit
 
-    QAudioDeviceInfo infoIn(QAudioDeviceInfo::availableDevices(QAudio::AudioInput)[ui->CmbAudioInputs->currentIndex()]);
-    if (!infoIn.isFormatSupported(m_format))
+    qDebug() << QString("m_format : sample rate : %1 , channel count : %2 , audio Format : %3 ")
+                    .arg(m_format.sampleRate()).arg(m_format.channelCount()).arg(m_format.sampleFormat());
+
+    m_Inputdevice = QMediaDevices::audioInputs().at(ui->CmbAudioInputs->currentIndex());
+    m_Outputdevice = QMediaDevices::audioOutputs().at(ui->CmbAudioOutputs->currentIndex());
+
+    if(!m_Inputdevice.isFormatSupported(m_format))
     {
-        //Default format not supported - trying to use nearest
-        m_format = infoIn.nearestFormat(m_format);
+        m_format = m_Inputdevice.preferredFormat();
+        qDebug() << QString("m_Inputdevice Replaced with preferredFormat(); sample rate : %1 , channel count : %2 , audio Format : %3 ")
+                        .arg(m_format.sampleRate()).arg(m_format.channelCount()).arg(m_format.sampleFormat());
     }
     createAudioInput();
 
-    QAudioDeviceInfo infoOut(QAudioDeviceInfo::availableDevices(QAudio::AudioOutput)[ui->CmbAudioOutputs->currentIndex()]);
-    if (!infoOut.isFormatSupported(m_format))
+    if(!m_Outputdevice.isFormatSupported(m_format))
     {
-        //Default format not supported - trying to use nearest
-        m_format = infoOut.nearestFormat(m_format);
+        m_format = m_Inputdevice.preferredFormat();
+        qDebug() << QString("m_Outputdevice Replaced with preferredFormat(); sample rate : %1 , channel count : %2 , audio Format : %3 ")
+                        .arg(m_format.sampleRate()).arg(m_format.channelCount()).arg(m_format.sampleFormat());
     }
     createAudioOutput();
 }
 
 void MainWindow::createAudioInput(void)
 {
-    if (m_input != 0) {
-        disconnect(m_input, 0, this, 0);
-        m_input = 0;
-    }
-
-    m_audioInput = new QAudioInput(m_Inputdevice, m_format, this);
+    m_audioInput = new QAudioSource(m_Inputdevice, m_format, this);
 }
 
 void MainWindow::createAudioOutput(void)
 {
-    m_audioOutput = new QAudioOutput(m_Outputdevice, m_format, this);
-    m_output= m_audioOutput->start();
+    m_audioOutput = new QAudioSink(m_Outputdevice, m_format, this);
+    m_output = m_audioOutput->start();
 }
 
 void MainWindow::fillAudioInputs()
 {
     int i = 0;
-    foreach (QAudioDeviceInfo info, QAudioDeviceInfo::availableDevices(QAudio::AudioInput)) {
-        ui->CmbAudioInputs->addItem(info.deviceName(),i);
+    foreach (QAudioDevice info, QMediaDevices::audioInputs()) {
+        ui->CmbAudioInputs->addItem(info.description(),i);
         i++;
     }
 }
@@ -232,8 +229,8 @@ void MainWindow::fillAudioInputs()
 void MainWindow::fillAudioOutputs()
 {
     int i = 0;
-    foreach (QAudioDeviceInfo info, QAudioDeviceInfo::availableDevices(QAudio::AudioOutput)) {
-        ui->CmbAudioOutputs->addItem(info.deviceName(),i);
+    foreach (QAudioDevice info, QMediaDevices::audioOutputs()) {
+        ui->CmbAudioOutputs->addItem(info.description(),i);
         i++;
     }
 }

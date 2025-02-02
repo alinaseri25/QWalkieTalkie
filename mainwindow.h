@@ -9,9 +9,14 @@
 #include <QTcpSocket>
 #include <QByteArray>
 #include <QBuffer>
-#include <QAudioInput>
-#include <QAudioOutput>
 #include <QTimer>
+#include <QAudioSource>
+#include <QAudioFormat>
+#include <QIODevice>
+#include <QtMultimedia>
+#include <QFile>
+
+#define BufferSize 1024
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -41,14 +46,15 @@ private:
     void fillAudioInputs(void);
     void fillAudioOutputs(void);
 
-    QAudioDeviceInfo m_Inputdevice;
-    QAudioDeviceInfo m_Outputdevice;
     QAudioFormat m_format;
-    QAudioInput *m_audioInput;
-    QAudioOutput *m_audioOutput;
+    QAudioDevice m_Inputdevice;
+    QAudioDevice m_Outputdevice;
+
+    QAudioSource *m_audioInput;
+    QAudioSink *m_audioOutput;
+
     QIODevice *m_input;
     QIODevice *m_output;
-    QByteArray m_buffer;
 
     QTcpSocket *cliSocket;
 
