@@ -17,6 +17,15 @@
 #include <QFile>
 
 #define BufferSize 1024
+#define PortNumber 1255
+
+typedef struct
+{
+    uint32_t Sender;
+    uint32_t Recipient;
+    uint8_t Data[BufferSize];
+}AudioPacket;
+
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -30,14 +39,7 @@ private slots:
     void onReadInput(void);
     void onBtnSendClicked(void);
     void onBtnExitClicked(void);
-    void onTCPNewConnection(void);
-    void onTCPReadyRead(void);
-    void onTCPDisConnect(void);
-    void onSocketTimerTimeOut(void);
-    void onCliSocketConnect(void);
-    void onCliSocketReadyRead(void);
-    void onCliSocketDisconnect(void);
-    void onTxtDSTAddrEditingFinished(void);
+    void onUDPReadyRead(void);
 
 private:
     void initializeAudio(void);
@@ -56,12 +58,8 @@ private:
     QIODevice *m_input;
     QIODevice *m_output;
 
-    QTcpSocket *cliSocket;
-
-    QTimer *socketTimer;
-
-    QTcpServer          *server;
-    QList<QTcpSocket *> sockets;
+    QUdpSocket *Server = nullptr;
+    QUdpSocket *Client = nullptr;
 
 public:
     MainWindow(QWidget *parent = nullptr);

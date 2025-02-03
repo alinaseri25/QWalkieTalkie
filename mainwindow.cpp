@@ -8,59 +8,45 @@ MainWindow::MainWindow(QWidget *parent)
     ui->setupUi(this);
     connect(ui->BtnSendData,&QPushButton::clicked,this,&MainWindow::onBtnSendClicked);
     connect(ui->BtnExit,&QPushButton::clicked,this,&MainWindow::onBtnExitClicked);
-    connect(ui->TxtDSTAddr,&QLineEdit::editingFinished,this,&MainWindow::onTxtDSTAddrEditingFinished);
-
-
-    server = new QTcpServer(this);
-    server->listen(QHostAddress::Any,1010);
-    connect(server,&QTcpServer::newConnection,this,&MainWindow::onTCPNewConnection);
 
     fillAudioInputs();
     fillAudioOutputs();
 
     this->statusBar()->show();
-
-    socketTimer = new QTimer(this);
-    socketTimer->setInterval(5000);
-    connect(socketTimer,&QTimer::timeout,this,&MainWindow::onSocketTimerTimeOut);
-
-    cliSocket = new QTcpSocket(this);
-    connect(cliSocket,&QTcpSocket::connected,this,&MainWindow::onCliSocketConnect);
-    connect(cliSocket,&QTcpSocket::readyRead,this,&MainWindow::onCliSocketReadyRead);
-    connect(cliSocket,&QTcpSocket::disconnected,this,&MainWindow::onCliSocketDisconnect);
-
-    QHostInfo info = QHostInfo::fromName(ui->TxtDSTAddr->text());
-    if(!info.addresses().isEmpty())
+    Server = new QUdpSocket(this);
+    if(!Server->bind(PortNumber))
     {
-        QHostAddress address(info.addresses().at(0));
-        cliSocket->connectToHost(address,1010);
+        ui->LblState->setText(QString("Cannot Bind Server"));
     }
-    socketTimer->start();
-    ui->statusbar->showMessage(QString("Connecting to : %1").arg(ui->TxtDSTAddr->text()),3000);
+    else
+    {
+        ui->LblState->setText(QString("UDP Server Ready"));
+    }
+    connect(Server,&QUdpSocket::readyRead,this,&MainWindow::onUDPReadyRead);
+
+    Client = new QUdpSocket(this);
 }
 
 MainWindow::~MainWindow()
 {
-    disconnect(cliSocket,&QTcpSocket::connected,this,&MainWindow::onCliSocketConnect);
-    disconnect(cliSocket,&QTcpSocket::readyRead,this,&MainWindow::onCliSocketReadyRead);
-    disconnect(cliSocket,&QTcpSocket::disconnected,this,&MainWindow::onCliSocketDisconnect);
-    delete cliSocket;
-    delete socketTimer;
-    delete server;
-    for(int count = 0 ; count < sockets.count() ; count++)
-    {
-        delete sockets.at(count);
-        sockets.removeAt(count);
-    }
     delete ui;
 }
 
 void MainWindow::onReadInput()
 {
+    if(ui->SpbMyID->value() == 0)
+    {
+        return;
+    }
     if(m_input->bytesAvailable() > BufferSize)
     {
         QByteArray Buffer = m_input->read(BufferSize);
-        cliSocket->write(Buffer);
+        AudioPacket packet;
+        packet.Recipient = ui->SpbSendToID->value();
+        packet.Sender = ui->SpbMyID->value();
+        memcpy(packet.Data,Buffer.data(),BufferSize);
+        QByteArray Datagram((char *)(&packet),sizeof(AudioPacket));
+        Client->writeDatagram(Datagram,QHostAddress::Broadcast,PortNumber);
     }
 }
 
@@ -69,94 +55,28 @@ void MainWindow::onBtnExitClicked(void)
     QApplication::exit();
 }
 
-void MainWindow::onTCPNewConnection()
+void MainWindow::onUDPReadyRead()
 {
-    sockets.append(server->nextPendingConnection());
-    connect(sockets[sockets.count() - 1],&QTcpSocket::readyRead,this,&MainWindow::onTCPReadyRead);
-    connect(sockets[sockets.count() - 1],&QTcpSocket::disconnected,this,&MainWindow::onTCPDisConnect);
-}
-
-void MainWindow::onTCPReadyRead()
-{
-    QByteArray _dataIn;
-    for(int count = 0 ; count < sockets.count() ; count++)
+    AudioPacket pack;
+    if(!Server->hasPendingDatagrams())
+        return;
+    int size = Server->pendingDatagramSize();
+    Server->readDatagram((char *)(&pack),size);
+    if(pack.Recipient == 255 || pack.Recipient == ui->SpbMyID->value())
     {
-        _dataIn = sockets[count]->readAll();
-        if(_dataIn.size() > 0)
+        if(m_output != NULL)
         {
-            if(m_output != NULL)
-            {
-                // qDebug() << QString("Data in : %1").arg(_dataIn.size());
-                m_output->write((char *)_dataIn.data(),_dataIn.size());
-            }
-            else
-            {
-                // qDebug() << QString("Data in : %1 \r\nm_output is null").arg(_dataIn.size());
-            }
+            m_output->write((char *)pack.Data,BufferSize);
+        }
+        else
+        {
+            qDebug() << QString("Data in : %1 \r\nm_output is null").arg(size);
         }
     }
-}
-
-void MainWindow::onTCPDisConnect()
-{
-    for(int count = 0 ; count < sockets.count() ; count++)
+    else
     {
-        if(sockets[count]->state() != QTcpSocket::ConnectedState)
-        {
-            sockets.removeAt(count);
-        }
+        qDebug() << QString("pack.Recipient : %1 - pack.Sender : %2").arg(pack.Recipient).arg(pack.Sender);
     }
-}
-
-void MainWindow::onSocketTimerTimeOut()
-{
-    disconnect(cliSocket,&QTcpSocket::connected,this,&MainWindow::onCliSocketConnect);
-    disconnect(cliSocket,&QTcpSocket::readyRead,this,&MainWindow::onCliSocketReadyRead);
-    disconnect(cliSocket,&QTcpSocket::disconnected,this,&MainWindow::onCliSocketDisconnect);
-    delete cliSocket;
-    cliSocket = new QTcpSocket(this);
-    connect(cliSocket,&QTcpSocket::connected,this,&MainWindow::onCliSocketConnect);
-    connect(cliSocket,&QTcpSocket::readyRead,this,&MainWindow::onCliSocketReadyRead);
-    connect(cliSocket,&QTcpSocket::disconnected,this,&MainWindow::onCliSocketDisconnect);
-    QHostInfo info = QHostInfo::fromName(ui->TxtDSTAddr->text());
-    if(!info.addresses().isEmpty())
-    {
-        QHostAddress address(info.addresses().at(0));
-        cliSocket->connectToHost(address,1010);
-    }
-    socketTimer->start();
-    ui->statusbar->showMessage(QString("Reconnecting to : %1").arg(ui->TxtDSTAddr->text()),3000);
-}
-
-void MainWindow::onCliSocketConnect()
-{
-    socketTimer->stop();
-    ui->LblState->setText(QString("Socket Connected!"));
-    ui->statusbar->showMessage(QString("Connected to : %1").arg(ui->TxtDSTAddr->text()),3000);
-}
-
-void MainWindow::onCliSocketReadyRead()
-{
-
-}
-
-void MainWindow::onCliSocketDisconnect()
-{
-    ui->LblState->setText(QString("Socket Disconnected!"));
-    QHostInfo info = QHostInfo::fromName(ui->TxtDSTAddr->text());
-    if(!info.addresses().isEmpty())
-    {
-        QHostAddress address(info.addresses().at(0));
-        cliSocket->connectToHost(address,1010);
-    }
-    socketTimer->start();
-    ui->statusbar->showMessage(QString("Reconnecting to : %1").arg(ui->TxtDSTAddr->text()),3000);
-}
-
-void MainWindow::onTxtDSTAddrEditingFinished()
-{
-    cliSocket->close();
-    ui->statusbar->showMessage(QString("Reconnecting to : %1").arg(ui->TxtDSTAddr->text()),3000);
 }
 
 void MainWindow::onBtnSendClicked()
@@ -168,7 +88,6 @@ void MainWindow::onBtnSendClicked()
         m_audioInput->setBufferSize(BufferSize);
         connect(m_input,&QIODevice::readyRead,this,&MainWindow::onReadInput);
         ui->BtnSendData->setText(QString("&Stop"));
-        qDebug() << QString("Buffer Size : %1").arg(m_audioInput->bufferSize());
     }
     else
     {

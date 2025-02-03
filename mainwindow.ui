@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>643</width>
-    <height>177</height>
+    <height>178</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -41,9 +41,36 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_2">
         <item>
-         <widget class="QLineEdit" name="TxtDSTAddr">
+         <widget class="QLabel" name="LblMyID">
           <property name="text">
-           <string>127.0.0.1</string>
+           <string>My ID [0 Disable] :</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="SpbMyID">
+          <property name="maximum">
+           <number>254</number>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="LblSendToID">
+          <property name="text">
+           <string>Send To ID [255 Broadcast] :</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QSpinBox" name="SpbSendToID">
+          <property name="minimum">
+           <number>1</number>
+          </property>
+          <property name="maximum">
+           <number>255</number>
+          </property>
+          <property name="value">
+           <number>255</number>
           </property>
          </widget>
         </item>
