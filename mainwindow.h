@@ -60,10 +60,14 @@ private:
 
     QUdpSocket *Server = nullptr;
     QUdpSocket *Client = nullptr;
+#ifdef Q_OS_ANDROID
+    void acquireMulticastLock(void);
+#endif
 
 public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
+    void showMessageBox(QString data);
 
 private:
     Ui::MainWindow *ui;

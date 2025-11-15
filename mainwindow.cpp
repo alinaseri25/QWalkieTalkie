@@ -1,11 +1,45 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
+// ------- GLOBAL POINTER -------
+static MainWindow* g_mainWindowInstance = nullptr;
+
+extern "C"
+    JNIEXPORT void JNICALL
+    Java_org_verya_QWalkieTalkie_TestBridge_onMessageFromKotlin(JNIEnv* env, jclass /*clazz*/, jstring msg)
+{
+    if (!g_mainWindowInstance)
+        return;
+
+    QString qmsg = QJniObject(msg).toString();
+
+    // 🧵 انتقال امن به Thread اصلی UI با Qt
+    QMetaObject::invokeMethod(g_mainWindowInstance, [=]() {
+        //g_mainWindowInstance->ui->TxtResult->append(QStringLiteral("From Kotlin: %1").arg(qmsg));
+        g_mainWindowInstance->showMessageBox(QStringLiteral("From Kotlin: %1").arg(qmsg));
+    }, Qt::QueuedConnection);
+}
+
+extern "C"
+    JNIEXPORT void JNICALL
+    Java_org_verya_QWalkieTalkie_TestBridge_nativeOnNotificationAction(JNIEnv *, jobject)
+{
+    if (!g_mainWindowInstance)
+        return;
+
+    QMetaObject::invokeMethod(g_mainWindowInstance, [=]() {
+        //g_mainWindowInstance->ui->TxtResult->append(QStringLiteral("From Kotlin: %1").arg(qmsg));
+        g_mainWindowInstance->showMessageBox(QStringLiteral("Action pressed"));
+    }, Qt::QueuedConnection);
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+
+    g_mainWindowInstance = this;
     connect(ui->BtnSendData,&QPushButton::clicked,this,&MainWindow::onBtnSendClicked);
     connect(ui->BtnExit,&QPushButton::clicked,this,&MainWindow::onBtnExitClicked);
 
@@ -13,14 +47,55 @@ MainWindow::MainWindow(QWidget *parent)
     fillAudioOutputs();
 
     this->statusBar()->show();
+#ifdef Q_OS_ANDROID
+    ui->LblMyID->setText(QString("android"));
+    const char* cls = "org/verya/QWalkieTalkie/TestBridge";
+    QJniObject message = QJniObject::callStaticObjectMethod(
+        cls,
+        "notifyCPlusPlus",
+        "(Ljava/lang/String;)");
+    acquireMulticastLock();
+#endif
     Server = new QUdpSocket(this);
     if(!Server->bind(PortNumber))
     {
         ui->LblState->setText(QString("Cannot Bind Server"));
+#ifdef Q_OS_ANDROID
+            QJniObject context = QNativeInterface::QAndroidApplication::context();
+            if (!context.isValid())
+            return;
+            QJniObject jTitle = QJniObject::fromString("QWalkieTalkie");
+            QJniObject jMsg   = QJniObject::fromString("Error : Cannot Bind Server");
+
+            QJniObject::callStaticMethod<void>(
+                cls,
+                "postNotification",
+                "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+                context.object(),
+                jTitle.object<jstring>(),
+                jMsg.object<jstring>()
+                );
+#endif
     }
     else
     {
         ui->LblState->setText(QString("UDP Server Ready"));
+#ifdef Q_OS_ANDROID
+        QJniObject context = QNativeInterface::QAndroidApplication::context();
+        if (!context.isValid())
+            return;
+        QJniObject jTitle = QJniObject::fromString("QWalkieTalkie");
+        QJniObject jMsg   = QJniObject::fromString("Now UDP Server ready to use");
+
+        QJniObject::callStaticMethod<void>(
+            cls,
+            "postNotification",
+            "(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)V",
+            context.object(),
+            jTitle.object<jstring>(),
+            jMsg.object<jstring>()
+            );
+#endif
     }
     connect(Server,&QUdpSocket::readyRead,this,&MainWindow::onUDPReadyRead);
 
@@ -30,6 +105,11 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::showMessageBox(QString data)
+{
+    QMessageBox::about(this,QString("Callback"),QString(data));
 }
 
 void MainWindow::onReadInput()
@@ -153,3 +233,26 @@ void MainWindow::fillAudioOutputs()
         i++;
     }
 }
+
+#ifdef Q_OS_ANDROID
+void MainWindow::acquireMulticastLock()
+{
+    QJniObject context = QNativeInterface::QAndroidApplication::context();
+    if (!context.isValid())
+        return;
+
+    QJniObject wifiManager = context.callObjectMethod(
+        "getSystemService",
+        "(Ljava/lang/String;)Ljava/lang/Object;",
+        QJniObject::fromString("wifi").object<jstring>()
+        );
+
+    QJniObject multicastLock = wifiManager.callObjectMethod(
+        "createMulticastLock",
+        "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;",
+        QJniObject::fromString("MyUdpLock").object<jstring>()
+        );
+
+    multicastLock.callMethod<void>("acquire");
+}
+#endif
