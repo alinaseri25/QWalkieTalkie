@@ -4,6 +4,7 @@
 // ------- GLOBAL POINTER -------
 static MainWindow* g_mainWindowInstance = nullptr;
 
+#ifdef Q_OS_ANDROID
 extern "C"
     JNIEXPORT void JNICALL
     Java_org_verya_QWalkieTalkie_TestBridge_onMessageFromKotlin(JNIEnv* env, jclass /*clazz*/, jstring msg)
@@ -32,6 +33,7 @@ extern "C"
         g_mainWindowInstance->showMessageBox(QStringLiteral("Action pressed"));
     }, Qt::QueuedConnection);
 }
+#endif
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -45,6 +47,11 @@ MainWindow::MainWindow(QWidget *parent)
 
     fillAudioInputs();
     fillAudioOutputs();
+
+    connect(ui->CmbAudioInputs,&QComboBox::currentTextChanged,this,&MainWindow::onCmbAudioInputsChanged);
+    connect(ui->CmbAudioOutputs,&QComboBox::currentTextChanged,this,&MainWindow::onCmbAudioOutputsChanged);
+
+    initializeAudio();
 
     this->statusBar()->show();
 #ifdef Q_OS_ANDROID
@@ -146,7 +153,69 @@ void MainWindow::onUDPReadyRead()
     {
         if(m_output != NULL)
         {
-            m_output->write((char *)pack.Data,BufferSize);
+            QAudioFormat outFmt = m_audioOutput->format();
+
+            // فقط اگه فرمت‌ها با هم فرق دارن تبدیل کنیم
+            bool needConvert = false;
+            if (m_formatSample.sampleFormat() != outFmt.sampleFormat() ||
+                m_formatSample.channelCount() != outFmt.channelCount() ||
+                m_formatSample.sampleRate()   != outFmt.sampleRate())
+            {
+                needConvert = true;
+            }
+
+            QByteArray outData;
+
+            if (!needConvert)
+            {
+                // مستقیماً بنویس چون فرمت یکیه
+                outData = QByteArray((char*)pack.Data, BufferSize);
+            }
+            else
+            {
+                // ---- تبدیل UInt8 -> Int16 ----
+                QByteArray tmp;
+                tmp.resize(BufferSize * 2);
+                int16_t* dst = reinterpret_cast<int16_t*>(tmp.data());
+                const uint8_t* src = reinterpret_cast<const uint8_t*>(pack.Data);
+                for (int i = 0; i < BufferSize; ++i)
+                    dst[i] = ((int16_t)src[i] - 128) << 8;
+
+                // ---- SampleRate fix: 16000 -> 48000 (3x upsample) ----
+                QByteArray upsampled;
+                upsampled.resize(tmp.size() * 3);
+                int16_t* up = reinterpret_cast<int16_t*>(upsampled.data());
+                const int16_t* in = reinterpret_cast<const int16_t*>(tmp.data());
+                int sampleCount = BufferSize;
+
+                for (int i = 0; i < sampleCount; ++i)
+                {
+                    up[3*i]   = in[i];
+                    up[3*i+1] = in[i];
+                    up[3*i+2] = in[i];
+                }
+
+                // ---- تبدیل از Mono به Stereo اگر لازم بود ----
+                if (outFmt.channelCount() == 2)
+                {
+                    QByteArray stereo;
+                    stereo.resize(upsampled.size() * 2);
+                    int16_t* out = reinterpret_cast<int16_t*>(stereo.data());
+                    const int16_t* src16 = reinterpret_cast<const int16_t*>(upsampled.constData());
+                    int count = sampleCount * 3;
+                    for (int i = 0; i < count; ++i)
+                    {
+                        out[2*i]   = src16[i];
+                        out[2*i+1] = src16[i];
+                    }
+                    outData = stereo;
+                }
+                else
+                {
+                    outData = upsampled;
+                }
+            }
+            m_output->write(outData);
         }
         else
         {
@@ -157,6 +226,16 @@ void MainWindow::onUDPReadyRead()
     {
         qDebug() << QString("pack.Recipient : %1 - pack.Sender : %2").arg(pack.Recipient).arg(pack.Sender);
     }
+}
+
+void MainWindow::onCmbAudioInputsChanged(QString str)
+{
+    initializeAudio();
+}
+
+void MainWindow::onCmbAudioOutputsChanged(QString str)
+{
+    initializeAudio();
 }
 
 void MainWindow::onBtnSendClicked()
@@ -181,6 +260,8 @@ void MainWindow::initializeAudio(void)
     m_format.setSampleRate(16000);
     m_format.setChannelCount(1); //set channels to mono
     m_format.setSampleFormat(QAudioFormat::UInt8); //set sample size to 16 bit
+
+    m_formatSample = m_format;
 
     qDebug() << QString("m_format : sample rate : %1 , channel count : %2 , audio Format : %3 ")
                     .arg(m_format.sampleRate()).arg(m_format.channelCount()).arg(m_format.sampleFormat());

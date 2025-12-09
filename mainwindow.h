@@ -40,6 +40,8 @@ private slots:
     void onBtnSendClicked(void);
     void onBtnExitClicked(void);
     void onUDPReadyRead(void);
+    void onCmbAudioInputsChanged(QString str);
+    void onCmbAudioOutputsChanged(QString str);
 
 private:
     void initializeAudio(void);
@@ -48,7 +50,7 @@ private:
     void fillAudioInputs(void);
     void fillAudioOutputs(void);
 
-    QAudioFormat m_format;
+    QAudioFormat m_format,m_formatSample;
     QAudioDevice m_Inputdevice;
     QAudioDevice m_Outputdevice;
 
