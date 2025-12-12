@@ -315,9 +315,10 @@ void MainWindow::fillAudioOutputs()
     }
 }
 
-#ifdef Q_OS_ANDROID
+
 void MainWindow::acquireMulticastLock()
 {
+#ifdef Q_OS_ANDROID
     QJniObject context = QNativeInterface::QAndroidApplication::context();
     if (!context.isValid())
         return;
@@ -328,12 +329,33 @@ void MainWindow::acquireMulticastLock()
         QJniObject::fromString("wifi").object<jstring>()
         );
 
+    // wifi lock
+    QJniObject wifiLock = wifiManager.callObjectMethod(
+        "createWifiLock",
+        "(ILjava/lang/String;)Landroid/net/wifi/WifiManager$WifiLock;",
+        3, QJniObject::fromString("MyWifiLock").object<jstring>()
+        );
+    wifiLock.callMethod<void>("acquire");
+
+    // multicast lock
     QJniObject multicastLock = wifiManager.callObjectMethod(
         "createMulticastLock",
         "(Ljava/lang/String;)Landroid/net/wifi/WifiManager$MulticastLock;",
         QJniObject::fromString("MyUdpLock").object<jstring>()
         );
-
     multicastLock.callMethod<void>("acquire");
-}
+
+    // wake lock
+    QJniObject pm = context.callObjectMethod(
+        "getSystemService",
+        "(Ljava/lang/String;)Ljava/lang/Object;",
+        QJniObject::fromString("power").object<jstring>()
+        );
+    QJniObject wakeLock = pm.callObjectMethod(
+        "newWakeLock",
+        "(ILjava/lang/String;)Landroid/os/PowerManager$WakeLock;",
+        1, QJniObject::fromString("MyWakeLock").object<jstring>()
+        );
+    wakeLock.callMethod<void>("acquire");
 #endif
+}
