@@ -41,6 +41,8 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    CurrentID = QDateTime::currentMSecsSinceEpoch();
+
     g_mainWindowInstance = this;
     connect(ui->BtnSendData,&QPushButton::clicked,this,&MainWindow::onBtnSendClicked);
     connect(ui->BtnExit,&QPushButton::clicked,this,&MainWindow::onBtnExitClicked);
@@ -129,8 +131,9 @@ void MainWindow::onReadInput()
     {
         QByteArray Buffer = m_input->read(BufferSize);
         AudioPacket packet;
-        packet.Recipient = ui->SpbSendToID->value();
-        packet.Sender = ui->SpbMyID->value();
+        packet.RecipientGP = ui->SpbSendToID->value();
+        packet.SenderGP = ui->SpbMyID->value();
+        packet.SenderId = CurrentID;
         memcpy(packet.Data,Buffer.data(),BufferSize);
         QByteArray Datagram((char *)(&packet),sizeof(AudioPacket));
         Client->writeDatagram(Datagram,QHostAddress::Broadcast,PortNumber);
@@ -149,7 +152,11 @@ void MainWindow::onUDPReadyRead()
         return;
     int size = Server->pendingDatagramSize();
     Server->readDatagram((char *)(&pack),size);
-    if(pack.Recipient == 255 || pack.Recipient == ui->SpbMyID->value())
+    if(pack.SenderId == CurrentID)
+    {
+        return;
+    }
+    if(pack.RecipientGP == 255 || pack.RecipientGP == ui->SpbMyID->value())
     {
         if(m_output != NULL)
         {
@@ -224,7 +231,7 @@ void MainWindow::onUDPReadyRead()
     }
     else
     {
-        qDebug() << QString("pack.Recipient : %1 - pack.Sender : %2").arg(pack.Recipient).arg(pack.Sender);
+        qDebug() << QString("pack.Recipient : %1 - pack.Sender : %2").arg(pack.RecipientGP).arg(pack.SenderGP);
     }
 }
 

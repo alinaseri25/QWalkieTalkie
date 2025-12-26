@@ -21,8 +21,9 @@
 
 typedef struct
 {
-    uint32_t Sender;
-    uint32_t Recipient;
+    uint64_t SenderId;
+    uint32_t SenderGP;
+    uint32_t RecipientGP;
     uint8_t Data[BufferSize];
 }AudioPacket;
 
@@ -59,6 +60,8 @@ private:
 
     QIODevice *m_input;
     QIODevice *m_output;
+
+    uint64_t CurrentID;
 
     QUdpSocket *Server = nullptr;
     QUdpSocket *Client = nullptr;
